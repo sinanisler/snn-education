@@ -386,107 +386,289 @@ function snn_edu_video_player_shortcode($atts) {
     if (!is_user_logged_in()) {
         return '<p>' . __('Please log in to view this content.', 'snn') . '</p>';
     }
-    
+
+    static $player_instance = 0;
+    $player_instance++;
+
     $atts = shortcode_atts([
-        'field' => 'video_url',
-        'poster' => '',
-        'autoplay' => 'false',
-        'muted' => 'false',
-        'loop' => 'false',
-        'events' => 'both',
-        'subtitles' => '',
-        'width' => '100%',
-        'aspectratio' => '16/9'
+        'field'       => 'video_url',
+        'poster'      => '',
+        'autoplay'    => 'false',
+        'muted'       => 'false',
+        'loop'        => 'false',
+        'events'      => 'both',
+        'subtitles'   => '',
+        'chapters'    => 'chapters',
+        'width'       => '100%',
+        'aspectratio' => '16/9',
+        'height'      => '',
     ], $atts);
-    
-    $post_id = get_the_ID();
+
+    $post_id   = get_the_ID();
     $video_url = get_post_meta($post_id, $atts['field'], true);
-    
+
     if (!$video_url) {
         return '<p>' . __('No video available.', 'snn') . '</p>';
     }
-    
+
     // Auto-enroll on load
     if (snn_edu_is_lesson($post_id)) {
-        $user_id = get_current_user_id();
-        snn_edu_auto_enroll($user_id, $post_id);
+        snn_edu_auto_enroll(get_current_user_id(), $post_id);
     }
-    
-    // Get poster
+
+    $player_id = 'snn-video-' . $post_id . '-' . $player_instance;
+
+    // Poster
     $poster_url = '';
     if ($atts['poster']) {
         $poster_url = filter_var($atts['poster'], FILTER_VALIDATE_URL)
             ? $atts['poster']
             : get_post_meta($post_id, $atts['poster'], true);
     }
-    // Fallback to featured image if no poster specified or resolved
     if (!$poster_url && has_post_thumbnail($post_id)) {
         $poster_url = get_the_post_thumbnail_url($post_id, 'full');
     }
 
-    // Get subtitles - expects custom field containing array: ['en' => 'https://...vtt', 'tr' => 'https://...vtt']
+    // Subtitles — field stores ['en' => 'url', 'tr' => 'url']
     $subtitles = [];
     if ($atts['subtitles']) {
         $subtitle_data = get_post_meta($post_id, $atts['subtitles'], true);
         if (is_array($subtitle_data)) {
             foreach ($subtitle_data as $lang => $url) {
-                // Only include valid, non-empty URLs to avoid 404 track errors
                 if (!empty($url) && filter_var($url, FILTER_VALIDATE_URL)) {
-                    $subtitles[sanitize_key($lang)] = $url;
+                    $subtitles[] = [
+                        'url'        => $url,
+                        'label'      => strtoupper(sanitize_key($lang)),
+                        'srclang'    => sanitize_key($lang),
+                        'is_default' => false,
+                    ];
                 }
             }
         }
     }
-    
-    $player_id = 'snn-video-' . $post_id;
-    $threshold = snn_edu_get_option('video_threshold', 3);
+
+    // Chapters — field stores [['time','title'], ...] or [['time'=>...,'title'=>...], ...]
+    $chapters = [];
+    if ($atts['chapters']) {
+        $chapters_data = get_post_meta($post_id, $atts['chapters'], true);
+        if (empty($chapters_data)) {
+            $chapters_data = get_post_meta($post_id, 'chapter', true);
+        }
+        if (is_array($chapters_data)) {
+            foreach ($chapters_data as $item) {
+                if (!is_array($item) || count($item) < 2) continue;
+                if (isset($item['time'], $item['title'])) {
+                    $chapters[] = ['time' => $item['time'], 'title' => $item['title']];
+                } elseif (isset($item[0], $item[1])) {
+                    $chapters[] = ['time' => $item[0], 'title' => $item[1]];
+                }
+            }
+        }
+    }
+
+    $autoplay     = ($atts['autoplay'] === 'true');
+    $muted        = ($atts['muted'] === 'true');
+    $loop         = ($atts['loop'] === 'true');
+    $threshold    = snn_edu_get_option('video_threshold', 3);
     $require_full = snn_edu_get_option('require_full_video', false);
-    
+
+    $has_subtitles = !empty($subtitles);
+    $pid           = esc_attr($player_id);
+
     ob_start();
     ?>
-    <div class="snn-video-player-wrapper" style="width: <?php echo esc_attr($atts['width']); ?>;">
-        <div class="snn-video-container" id="<?php echo esc_attr($player_id); ?>" 
-             data-lesson-id="<?php echo esc_attr($post_id); ?>"
-             data-events="<?php echo esc_attr($atts['events']); ?>"
-             data-threshold="<?php echo esc_attr($threshold); ?>"
-             data-require-full="<?php echo esc_attr($require_full ? 'true' : 'false'); ?>">
-            <video class="snn-video" <?php echo $poster_url ? 'poster="' . esc_url($poster_url) . '"' : ''; ?>>
+    <div id="<?php echo $pid; ?>"
+         class="snn-player-wrapper"
+         data-lesson-id="<?php echo esc_attr($post_id); ?>"
+         data-events="<?php echo esc_attr($atts['events']); ?>"
+         data-threshold="<?php echo esc_attr($threshold); ?>"
+         data-require-full="<?php echo $require_full ? 'true' : 'false'; ?>"
+         data-muted="<?php echo $muted ? 'true' : 'false'; ?>"
+         data-chapters="<?php echo esc_attr(wp_json_encode($chapters)); ?>">
+
+        <style>
+            #<?php echo $pid; ?> {
+                --primary-accent-color: rgba(255,214,79,1);
+                --thumb-color: rgba(255,255,255,1);
+                --text-color: rgba(255,255,255,1);
+                --slider-track-color: rgba(255,255,255,0.3);
+                --chapter-dot-color: rgba(255,255,255,1);
+                --button-hover-background: rgba(255,255,255,0.2);
+                --button-color: rgba(255,255,255,1);
+                --tooltip-text-color: rgba(255,255,255,1);
+                --controls-bar-bg: rgba(0,0,0,0.8);
+                width: 100%;
+                max-width: <?php echo esc_attr($atts['width']); ?>;
+                margin-left: auto; margin-right: auto;
+            }
+            #<?php echo $pid; ?> .snn-video-container {
+                position: relative; background: #000; overflow: hidden;
+                <?php if ($atts['height']): ?>height: <?php echo esc_attr($atts['height']); ?>;
+                <?php else: ?>aspect-ratio: <?php echo esc_attr($atts['aspectratio']); ?>;<?php endif; ?>
+            }
+            #<?php echo $pid; ?> .snn-video-container video { width:100%; height:100%; display:block; object-fit:contain; }
+            #<?php echo $pid; ?> .snn-video-container:fullscreen { width:100vw; height:100vh; max-width:100%; border-radius:0; }
+            #<?php echo $pid; ?> .snn-controls-overlay { position:absolute; inset:0; display:flex; flex-direction:column; justify-content:flex-end; opacity:0; transition:opacity 0.3s ease-in-out; }
+            #<?php echo $pid; ?> .snn-video-container.snn-controls-visible .snn-controls-overlay { opacity:1; }
+            #<?php echo $pid; ?> .snn-controls-hidden .snn-controls-overlay { cursor:none; opacity:0; pointer-events:none; }
+            #<?php echo $pid; ?> .snn-controls-bar-container { padding:0; background:linear-gradient(to top, var(--controls-bar-bg) 0%, rgba(0,0,0,0.2) 100%); }
+            #<?php echo $pid; ?> .snn-progress-container { position:relative; margin:0 11px 4px 12px; height:5px; }
+            #<?php echo $pid; ?> .snn-progress-tooltip { position:absolute; background-color:var(--primary-accent-color); color:var(--tooltip-text-color); font-size:14px; border-radius:4px; padding:4px 8px; bottom:100%; margin-bottom:8px; pointer-events:none; opacity:0; transition:opacity 0.2s; white-space:nowrap; transform:translateX(-50%); max-width:260px; z-index:10; line-height:1.4; }
+            #<?php echo $pid; ?> .snn-chapter-dots-container { position:absolute; width:100%; height:100%; top:0; left:0; pointer-events:none; z-index:5; }
+            #<?php echo $pid; ?> .snn-chapter-sections-container { position:absolute; width:100%; height:100%; top:0; left:0; display:flex; z-index:3; pointer-events:all; gap:2px; }
+            #<?php echo $pid; ?> .snn-chapter-section { position:relative; height:5px; background:transparent; cursor:pointer; display:flex; align-items:flex-end; transition:transform 0.15s ease; }
+            #<?php echo $pid; ?> .snn-chapter-section:hover { transform:scaleY(1.6); }
+            #<?php echo $pid; ?> .snn-chapter-section-fill { position:absolute; bottom:0; left:0; width:0%; height:100%; background:var(--primary-accent-color); transition:width 0.1s linear; pointer-events:none; }
+            #<?php echo $pid; ?> .snn-chapter-section-bg { position:absolute; bottom:0; left:0; width:100%; height:100%; background:var(--slider-track-color); pointer-events:none; }
+            #<?php echo $pid; ?> .snn-controls-bar { display:flex; align-items:center; justify-content:space-between; color:var(--text-color); padding:0 2px 2px 2px; }
+            #<?php echo $pid; ?> .snn-controls-left, #<?php echo $pid; ?> .snn-controls-right { display:flex; align-items:center; gap:10px; }
+            #<?php echo $pid; ?> .snn-control-button { background:none; border:none; color:var(--button-color); padding:5px; border-radius:9999px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background-color 0.2s; filter:drop-shadow(0 0 2px #00000099); }
+            #<?php echo $pid; ?> .snn-control-button:hover { background-color:var(--button-hover-background); }
+            #<?php echo $pid; ?> .snn-control-button svg { width:30px; height:30px; fill:currentColor; }
+            #<?php echo $pid; ?> .snn-volume-container { display:flex; align-items:center; }
+            #<?php echo $pid; ?> .snn-volume-container .snn-volume-slider { width:0; transition:width 0.3s ease, opacity 0.3s ease; opacity:0; }
+            #<?php echo $pid; ?> .snn-volume-container:hover .snn-volume-slider { width:75px; opacity:1; }
+            #<?php echo $pid; ?> .snn-progress-bar.snn-video-slider { -webkit-appearance:none; appearance:none; width:100%; height:5px; background:transparent; cursor:pointer; border-radius:5px; position:absolute; top:0; left:0; z-index:2; }
+            #<?php echo $pid; ?> .snn-progress-bar.snn-video-slider::-webkit-slider-thumb { -webkit-appearance:none; width:0; height:0; opacity:0; }
+            #<?php echo $pid; ?> .snn-progress-bar.snn-video-slider::-moz-range-thumb { width:0; height:0; opacity:0; border:none; }
+            #<?php echo $pid; ?> .snn-progress-thumb { position:absolute; top:50%; transform:translate(-50%,-50%); width:16px; height:16px; background:var(--thumb-color); border-radius:50%; cursor:pointer; border:2px solid var(--primary-accent-color); pointer-events:none; z-index:10; }
+            #<?php echo $pid; ?> .snn-volume-slider { -webkit-appearance:none; appearance:none; height:5px; background:var(--slider-track-color); cursor:pointer; border-radius:5px; margin-left:7px; }
+            #<?php echo $pid; ?> .snn-volume-slider::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; background:var(--thumb-color); border-radius:50%; cursor:pointer; border:2px solid var(--primary-accent-color); }
+            #<?php echo $pid; ?> .snn-volume-slider::-moz-range-thumb { width:16px; height:16px; background:var(--thumb-color); border-radius:50%; cursor:pointer; border:2px solid var(--primary-accent-color); }
+            #<?php echo $pid; ?> .snn-chapter-dot { position:absolute; top:50%; transform:translate(-50%,-50%); width:5px; height:6px; background:var(--chapter-dot-color); border-radius:0; cursor:pointer; }
+            #<?php echo $pid; ?> .snn-time-display { font-size:13px; white-space:nowrap; }
+            #<?php echo $pid; ?> .snn-cc-container { position:relative; }
+            #<?php echo $pid; ?> .snn-cc-menu { position:absolute; bottom:100%; right:0; margin-bottom:10px; background:rgba(0,0,0,0.9); border-radius:5px; min-width:200px; max-height:250px; overflow-y:auto; display:none; z-index:100; }
+            #<?php echo $pid; ?> .snn-cc-menu.snn-show { display:block; }
+            #<?php echo $pid; ?> .snn-cc-menu-item { padding:12px 16px; cursor:pointer; color:var(--text-color); font-size:14px; transition:background-color 0.2s; border:none; background:none; width:100%; text-align:left; display:flex; align-items:center; gap:8px; }
+            #<?php echo $pid; ?> .snn-cc-menu-item:hover { background-color:var(--button-hover-background); }
+            #<?php echo $pid; ?> .snn-cc-menu-item.snn-active { background-color:var(--primary-accent-color); color:var(--tooltip-text-color); }
+            #<?php echo $pid; ?> .snn-cc-menu-item svg { width:16px; height:16px; fill:currentColor; flex-shrink:0; }
+            #<?php echo $pid; ?> .snn-cc-settings-btn { display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(255,255,255,0.1); }
+            #<?php echo $pid; ?> .snn-cc-settings-panel { display:none; padding:8px 12px; }
+            #<?php echo $pid; ?> .snn-cc-settings-panel.snn-show { display:block; }
+            #<?php echo $pid; ?> .snn-cc-lang-list.snn-hidden { display:none; }
+            #<?php echo $pid; ?> .snn-cc-back-btn { display:none; align-items:center; gap:8px; border-bottom:1px solid rgba(255,255,255,0.1); }
+            #<?php echo $pid; ?> .snn-cc-back-btn.snn-show { display:flex; }
+            #<?php echo $pid; ?> .snn-cc-settings-row { margin-bottom:4px; }
+            #<?php echo $pid; ?> .snn-cc-settings-label { display:block; color:var(--text-color); font-size:13px; font-weight:500; }
+            #<?php echo $pid; ?> .snn-cc-settings-input { width:100%; padding:4px 6px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:4px; color:var(--text-color); font-size:13px; box-sizing:border-box; }
+            #<?php echo $pid; ?> .snn-cc-settings-input[type="color"] { height:24px; cursor:pointer; padding:0; }
+            #<?php echo $pid; ?> .snn-cc-settings-input[type="range"] { padding:0; height:6px; }
+            #<?php echo $pid; ?> .snn-settings-container { position:relative; }
+            #<?php echo $pid; ?> .snn-settings-btn { min-width:48px; font-size:14px; font-weight:600; padding:5px 8px; }
+            #<?php echo $pid; ?> .snn-settings-menu { position:absolute; bottom:100%; right:0; margin-bottom:10px; background:rgba(0,0,0,0.9); border-radius:5px; min-width:80px; display:none; z-index:100; }
+            #<?php echo $pid; ?> .snn-settings-menu.snn-show { display:block; }
+            #<?php echo $pid; ?> .snn-speed-option { padding:12px 20px; cursor:pointer; color:var(--text-color); font-size:14px; font-weight:500; transition:background-color 0.2s; border:none; background:none; width:100%; text-align:center; }
+            #<?php echo $pid; ?> .snn-speed-option:hover { background-color:var(--button-hover-background); }
+            #<?php echo $pid; ?> .snn-speed-option.snn-active { background-color:var(--primary-accent-color); color:var(--tooltip-text-color); }
+            #<?php echo $pid; ?> video::cue { font-size:20px; }
+            #<?php echo $pid; ?> .snn-hidden { display:none !important; }
+        </style>
+
+        <div class="snn-video-container">
+            <video class="snn-video" playsinline crossorigin="anonymous"
+                <?php echo $poster_url ? 'poster="' . esc_url($poster_url) . '"' : ''; ?>
+                <?php echo $autoplay ? 'autoplay' : ''; ?>
+                <?php echo $muted ? 'muted' : ''; ?>
+                <?php echo $loop ? 'loop' : ''; ?>
+            >
                 <source src="<?php echo esc_url($video_url); ?>" type="video/mp4">
-                <?php foreach ($subtitles as $lang => $vtt_url): ?>
-                <track kind="subtitles" src="<?php echo esc_url($vtt_url); ?>" srclang="<?php echo esc_attr($lang); ?>" label="<?php echo esc_attr(strtoupper($lang)); ?>">
+                <?php foreach ($subtitles as $index => $subtitle): ?>
+                <track kind="subtitles"
+                    label="<?php echo esc_attr($subtitle['label']); ?>"
+                    srclang="<?php echo esc_attr($subtitle['srclang']); ?>"
+                    src="<?php echo esc_url($subtitle['url']); ?>"
+                    <?php echo $subtitle['is_default'] ? 'default' : ''; ?>>
                 <?php endforeach; ?>
             </video>
-            <div class="snn-video-controls">
-                <button class="snn-play-btn" aria-label="Play">▶</button>
-                <input type="range" class="snn-progress-bar" min="0" max="100" value="0" step="0.1">
-                <span class="snn-time-display">0:00 / 0:00</span>
-                <button class="snn-volume-btn" aria-label="Volume">🔊</button>
-                <input type="range" class="snn-volume-slider" min="0" max="100" value="100">
-                <button class="snn-cc-btn" aria-label="Subtitles">CC</button>
-                <div class="snn-cc-menu" style="display: none;">
-                    <div class="snn-cc-option" data-lang="off"><?php _e('Off', 'snn'); ?></div>
-                    <?php foreach ($subtitles as $lang => $vtt_url): ?>
-                    <div class="snn-cc-option" data-lang="<?php echo esc_attr($lang); ?>"><?php echo esc_html(strtoupper($lang)); ?></div>
-                    <?php endforeach; ?>
+
+            <div class="snn-controls-overlay">
+                <div class="snn-controls-bar-container">
+                    <div class="snn-progress-container">
+                        <div class="snn-progress-tooltip">00:00</div>
+                        <div class="snn-chapter-sections-container"></div>
+                        <input type="range" class="snn-video-slider snn-progress-bar" min="0" max="100" step="0.1" value="0">
+                        <div class="snn-progress-thumb"></div>
+                        <div class="snn-chapter-dots-container"></div>
+                    </div>
+
+                    <div class="snn-controls-bar">
+                        <div class="snn-controls-left">
+                            <button class="snn-control-button snn-play-pause-btn" aria-label="Play/Pause"></button>
+                            <div class="snn-volume-container">
+                                <button class="snn-control-button snn-mute-btn" aria-label="Mute/Unmute"></button>
+                                <input type="range" class="snn-video-slider snn-volume-slider" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+                            </div>
+                            <div class="snn-time-display">00:00 / 00:00</div>
+                        </div>
+                        <div class="snn-controls-right">
+                            <?php if ($has_subtitles): ?>
+                            <div class="snn-cc-container">
+                                <button class="snn-control-button snn-cc-btn" aria-label="Subtitles">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>
+                                </button>
+                                <div class="snn-cc-menu">
+                                    <button class="snn-cc-back-btn snn-cc-menu-item">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                                        Back
+                                    </button>
+                                    <div class="snn-cc-lang-list">
+                                        <button class="snn-cc-menu-item" data-track="-1">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.73 21 21 19.73l-9-9L4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21zM12 4 9.91 6.09 12 8.18V4z"/></svg>
+                                            Off
+                                        </button>
+                                        <?php foreach ($subtitles as $index => $subtitle): ?>
+                                        <button class="snn-cc-menu-item" data-track="<?php echo $index; ?>">
+                                            <?php echo esc_html($subtitle['label']); ?>
+                                        </button>
+                                        <?php endforeach; ?>
+                                        <button class="snn-cc-menu-item snn-cc-settings-btn">
+                                            <span>Settings</span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                                        </button>
+                                    </div>
+                                    <div class="snn-cc-settings-panel">
+                                        <div class="snn-cc-settings-row">
+                                            <label class="snn-cc-settings-label">Font Size <span class="snn-cc-font-size-value">20</span>px</label>
+                                            <input type="range" class="snn-cc-settings-input snn-cc-font-size" min="10" max="100" value="20" step="2">
+                                        </div>
+                                        <div class="snn-cc-settings-row">
+                                            <label class="snn-cc-settings-label">Text Color</label>
+                                            <input type="color" class="snn-cc-settings-input snn-cc-text-color" value="#ffffff">
+                                        </div>
+                                        <div class="snn-cc-settings-row">
+                                            <label class="snn-cc-settings-label">Background Color</label>
+                                            <input type="color" class="snn-cc-settings-input snn-cc-bg-color" value="#000000">
+                                        </div>
+                                        <div class="snn-cc-settings-row">
+                                            <label class="snn-cc-settings-label">Background Opacity <span class="snn-cc-bg-opacity-value">80</span>%</label>
+                                            <input type="range" class="snn-cc-settings-input snn-cc-bg-opacity" min="0" max="100" value="80" step="5">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+
+                            <div class="snn-settings-container">
+                                <button class="snn-control-button snn-settings-btn" aria-label="Playback Speed">1x</button>
+                                <div class="snn-settings-menu">
+                                    <button class="snn-speed-option snn-active" data-speed="1">1x</button>
+                                    <button class="snn-speed-option" data-speed="1.5">1.5x</button>
+                                    <button class="snn-speed-option" data-speed="2">2x</button>
+                                    <button class="snn-speed-option" data-speed="4">4x</button>
+                                    <button class="snn-speed-option" data-speed="8">8x</button>
+                                </div>
+                            </div>
+
+                            <button class="snn-control-button snn-fullscreen-btn" aria-label="Fullscreen">
+                                <svg class="snn-fullscreen-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                                <svg class="snn-fullscreen-exit-icon snn-hidden" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <button class="snn-settings-btn" aria-label="Settings">⚙</button>
-                <div class="snn-settings-menu" style="display: none;">
-                    <label><?php _e('Font Size', 'snn'); ?>: <input type="range" class="snn-font-size" min="12" max="32" value="20"></label>
-                    <label><?php _e('Text Color', 'snn'); ?>: <input type="color" class="snn-text-color" value="#ffffff"></label>
-                    <label><?php _e('BG Color', 'snn'); ?>: <input type="color" class="snn-bg-color" value="#000000"></label>
-                    <label><?php _e('BG Opacity', 'snn'); ?>: <input type="range" class="snn-bg-opacity" min="0" max="100" value="80"></label>
-                </div>
-                <button class="snn-speed-btn" aria-label="Speed">1x</button>
-                <div class="snn-speed-menu" style="display: none;">
-                    <div class="snn-speed-option" data-speed="1">1x</div>
-                    <div class="snn-speed-option" data-speed="1.5">1.5x</div>
-                    <div class="snn-speed-option" data-speed="2">2x</div>
-                    <div class="snn-speed-option" data-speed="4">4x</div>
-                    <div class="snn-speed-option" data-speed="8">8x</div>
-                </div>
-                <button class="snn-fullscreen-btn" aria-label="Fullscreen">⛶</button>
             </div>
-            <div class="snn-progress-tooltip" style="display: none;">0:00</div>
         </div>
     </div>
     <?php

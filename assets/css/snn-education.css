@@ -4,104 +4,12 @@
  */
 
 /* ===========================================================
-   VIDEO PLAYER
+   VIDEO PLAYER — styles are output inline per player instance
    =========================================================== */
 
-.snn-video-player-wrapper {
+.snn-player-wrapper {
     position: relative;
     width: 100%;
-    max-width: 100%;
-}
-
-.snn-video-container {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 16 / 9;
-}
-
-.snn-video {
-    width: 100%;
-    height: 100%;
-    display: block;
-}
-
-.snn-video-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
-    flex-wrap: wrap;
-}
-
-.snn-play-btn,
-.snn-volume-btn,
-.snn-cc-btn,
-.snn-settings-btn,
-.snn-speed-btn,
-.snn-fullscreen-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 4px 8px;
-}
-
-.snn-progress-bar {
-    flex: 1;
-    cursor: pointer;
-    min-width: 100px;
-}
-
-.snn-volume-slider {
-    width: 80px;
-}
-
-.snn-time-display {
-    min-width: 100px;
-    text-align: center;
-}
-
-.snn-cc-menu,
-.snn-settings-menu,
-.snn-speed-menu {
-    position: absolute;
-    background: white;
-    border: 1px solid #ccc;
-    padding: 8px;
-    z-index: 1000;
-    min-width: 150px;
-}
-
-.snn-cc-option,
-.snn-speed-option {
-    padding: 4px 8px;
-    cursor: pointer;
-}
-
-.snn-cc-option:hover,
-.snn-speed-option:hover {
-    background: #f0f0f0;
-}
-
-.snn-settings-menu label {
-    display: block;
-    margin: 4px 0;
-}
-
-.snn-settings-menu input {
-    width: 100%;
-}
-
-.snn-progress-tooltip {
-    position: absolute;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 12px;
-    pointer-events: none;
-    transform: translateX(-50%);
-    bottom: 100%;
-    margin-bottom: 4px;
 }
 
 /* ===========================================================
@@ -230,17 +138,3 @@
    RESPONSIVE
    =========================================================== */
 
-@media (max-width: 768px) {
-    .snn-video-controls {
-        font-size: 14px;
-    }
-    
-    .snn-time-display {
-        font-size: 12px;
-        min-width: 80px;
-    }
-    
-    .snn-volume-slider {
-        width: 60px;
-    }
-}
