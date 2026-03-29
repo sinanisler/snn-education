@@ -829,6 +829,177 @@ function snn_edu_user_certificates_shortcode($atts) {
     return $output;
 }
 
+// Comment Form Shortcode
+add_shortcode('snn_comment_form', 'snn_edu_comment_form_shortcode');
+
+function snn_edu_comment_form_shortcode($atts) {
+    $atts = shortcode_atts([
+        'post_id' => 0,
+        'title_reply' => __('Leave a Reply', 'snn'),
+        'label_submit' => __('Post Comment', 'snn'),
+    ], $atts);
+
+    $post_id = $atts['post_id'] ? intval($atts['post_id']) : get_the_ID();
+
+    if (!comments_open($post_id)) {
+        return '<p class="snn-comments-closed">' . __('Comments are closed.', 'snn') . '</p>';
+    }
+
+    ob_start();
+
+    $args = [
+        'id_form'         => 'snn-comment-form',
+        'class_form'      => 'snn-comment-form',
+        'title_reply'     => esc_html($atts['title_reply']),
+        'label_submit'    => esc_html($atts['label_submit']),
+        'class_submit'    => 'snn-comment-submit button',
+        'comment_field'   => '<p class="snn-comment-field"><label for="comment">' . __('Comment', 'snn') . '</label><textarea id="comment" name="comment" class="snn-comment-textarea" rows="6" required></textarea></p>',
+        'fields' => [
+            'author' => '<p class="snn-comment-author"><label for="author">' . __('Name', 'snn') . '</label><input id="author" name="author" type="text" class="snn-comment-input" required></p>',
+            'email'  => '<p class="snn-comment-email"><label for="email">' . __('Email', 'snn') . '</label><input id="email" name="email" type="email" class="snn-comment-input" required></p>',
+        ],
+    ];
+
+    if (is_user_logged_in()) {
+        unset($args['fields']['author'], $args['fields']['email']);
+    }
+
+    echo '<div class="snn-comment-form-wrapper">';
+    comment_form($args, $post_id);
+
+    $comments = get_comments([
+        'post_id' => $post_id,
+        'status'  => 'approve',
+        'order'   => 'ASC',
+    ]);
+
+    if (!empty($comments)) {
+        echo '<div class="snn-comments-list">';
+        echo '<h3 class="snn-comments-title">' . sprintf(_n('%d Comment', '%d Comments', count($comments), 'snn'), count($comments)) . '</h3>';
+        echo '<ol class="snn-comments">';
+        foreach ($comments as $comment) {
+            $rating = get_comment_meta($comment->comment_ID, 'snn_education_rating_comment', true);
+            $stars = $rating ? '<span class="snn-comment-rating">' . str_repeat('⭐', intval($rating)) . '</span>' : '';
+            echo '<li class="snn-comment" id="snn-comment-' . $comment->comment_ID . '">';
+            echo '<div class="snn-comment-meta">';
+            echo '<span class="snn-comment-author">' . esc_html($comment->comment_author) . '</span>';
+            echo '<span class="snn-comment-date">' . esc_html(date_i18n(get_option('date_format'), strtotime($comment->comment_date))) . '</span>';
+            echo $stars;
+            echo '</div>';
+            echo '<div class="snn-comment-body">' . wpautop(esc_html($comment->comment_content)) . '</div>';
+            echo '</li>';
+        }
+        echo '</ol>';
+        echo '</div>';
+    }
+
+    echo '</div>';
+
+    return ob_get_clean();
+}
+
+// Course Sidebar Shortcode
+add_shortcode('snn_course_sidebar', 'snn_edu_course_sidebar_shortcode');
+
+function snn_edu_course_sidebar_shortcode($atts) {
+    $atts = shortcode_atts([
+        'course_id' => 0,
+    ], $atts);
+
+    $course_id = $atts['course_id'] ? intval($atts['course_id']) : snn_edu_get_top_level_course(get_the_ID());
+
+    if (!$course_id) {
+        return '';
+    }
+
+    $user_id       = get_current_user_id();
+    $current_id    = get_the_ID();
+    $post_types    = snn_edu_get_allowed_post_types();
+
+    // Get completed lesson IDs for this user/course
+    $completed_ids = [];
+    if ($user_id) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'snn_edu_data';
+        $completed_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT lesson_id FROM $table WHERE user_id = %d AND course_id = %d AND status = 'completed'",
+            $user_id, $course_id
+        ));
+        $completed_ids = array_map('intval', $completed_ids);
+    }
+
+    // Get chapters (direct children of course)
+    $chapters = get_posts([
+        'post_parent'    => $course_id,
+        'post_type'      => $post_types,
+        'posts_per_page' => -1,
+        'orderby'        => 'menu_order',
+        'order'          => 'ASC',
+        'post_status'    => 'publish',
+    ]);
+
+    if (empty($chapters)) {
+        return '';
+    }
+
+    $output  = '<nav class="snn-course-sidebar" data-course-id="' . esc_attr($course_id) . '">';
+    $output .= '<ul class="snn-course-sidebar-chapters">';
+
+    foreach ($chapters as $chapter) {
+        $chapter_completed = in_array($chapter->ID, $completed_ids);
+        $chapter_classes   = 'snn-chapter';
+        if ($chapter_completed) {
+            $chapter_classes .= ' snn-chapter-completed';
+        }
+
+        $output .= '<li class="' . esc_attr($chapter_classes) . '" data-chapter-id="' . esc_attr($chapter->ID) . '">';
+        $output .= '<span class="snn-chapter-title">' . esc_html($chapter->post_title) . '</span>';
+
+        // Get lessons (children of chapter)
+        $lessons = get_posts([
+            'post_parent'    => $chapter->ID,
+            'post_type'      => $post_types,
+            'posts_per_page' => -1,
+            'orderby'        => 'menu_order',
+            'order'          => 'ASC',
+            'post_status'    => 'publish',
+        ]);
+
+        if (!empty($lessons)) {
+            $output .= '<ul class="snn-chapter-lessons">';
+            foreach ($lessons as $lesson) {
+                $lesson_completed = in_array($lesson->ID, $completed_ids);
+                $is_current       = ($lesson->ID === $current_id);
+
+                $lesson_classes = 'snn-lesson';
+                if ($lesson_completed) {
+                    $lesson_classes .= ' snn-lesson-completed';
+                }
+                if ($is_current) {
+                    $lesson_classes .= ' snn-lesson-current';
+                }
+
+                $output .= '<li class="' . esc_attr($lesson_classes) . '" data-lesson-id="' . esc_attr($lesson->ID) . '">';
+                $output .= '<a href="' . esc_url(get_permalink($lesson->ID)) . '" class="snn-lesson-link">';
+                $output .= esc_html($lesson->post_title);
+                if ($lesson_completed) {
+                    $output .= ' <span class="snn-lesson-checkmark" aria-label="' . esc_attr__('Completed', 'snn') . '">✓</span>';
+                }
+                $output .= '</a>';
+                $output .= '</li>';
+            }
+            $output .= '</ul>';
+        }
+
+        $output .= '</li>';
+    }
+
+    $output .= '</ul>';
+    $output .= '</nav>';
+
+    return $output;
+}
+
 // ===========================================================
 // CHAPTER REDIRECT
 // ===========================================================
@@ -1530,6 +1701,16 @@ function snn_edu_shortcodes_page() {
             'code' => '[snn_user_certificates]',
             'desc' => __('List of earned certificates with links', 'snn'),
             'params' => 'none'
+        ],
+        [
+            'code' => '[snn_comment_form title_reply="Leave a Reply" label_submit="Post Comment"]',
+            'desc' => __('Frontend comment form with comments list and optional star ratings', 'snn'),
+            'params' => 'post_id, title_reply, label_submit'
+        ],
+        [
+            'code' => '[snn_course_sidebar course_id=""]',
+            'desc' => __('Udemy-style course sidebar: chapters (no link) + lessons (with link), marks current and completed lessons', 'snn'),
+            'params' => 'course_id'
         ]
     ];
     
