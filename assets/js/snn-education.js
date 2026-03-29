@@ -512,7 +512,7 @@
     }
 
     function snn_education_trackLesson(lessonId, status) {
-        fetch(snnEduData.restUrl + 'v2/track', {
+        fetch(snnEduData.restUrl + 'v1/track', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': snnEduData.nonce },
             body: JSON.stringify({ lesson_id: lessonId, status: status })

@@ -35,7 +35,7 @@ Complete education platform for WordPress with video tracking, certificates, str
 - Completion tracking based on watch time or full video
 
 ### REST API
-- `POST /snn-edu/v2/track` - Track lesson started/completed
+- `POST /snn-edu/v1/track` - Track lesson started/completed
 - `POST /snn-edu/v1/enroll` - Enroll in a post (and ancestors)
 - `POST /snn-edu/v1/unenroll` - Disabled (returns error)
 - `GET /snn-edu/v1/enrollments` - Get all enrollments for current user
