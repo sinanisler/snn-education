@@ -237,7 +237,7 @@ function snn_edu_issue_certificate($user_id, $course_id) {
 add_action('rest_api_init', 'snn_edu_register_routes');
 
 function snn_edu_register_routes() {
-    register_rest_route('snn-edu/v2', '/track', [
+    register_rest_route('snn-edu/v1', '/track', [
         'methods' => 'POST',
         'callback' => 'snn_edu_rest_track',
         'permission_callback' => 'is_user_logged_in'
