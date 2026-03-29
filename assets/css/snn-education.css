@@ -1,0 +1,246 @@
+/**
+ * SNN Education Frontend Styles
+ * Style-agnostic: only layout and structure, no decorative styling
+ */
+
+/* ===========================================================
+   VIDEO PLAYER
+   =========================================================== */
+
+.snn-video-player-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+}
+
+.snn-video-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+}
+
+.snn-video {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.snn-video-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    flex-wrap: wrap;
+}
+
+.snn-play-btn,
+.snn-volume-btn,
+.snn-cc-btn,
+.snn-settings-btn,
+.snn-speed-btn,
+.snn-fullscreen-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.snn-progress-bar {
+    flex: 1;
+    cursor: pointer;
+    min-width: 100px;
+}
+
+.snn-volume-slider {
+    width: 80px;
+}
+
+.snn-time-display {
+    min-width: 100px;
+    text-align: center;
+}
+
+.snn-cc-menu,
+.snn-settings-menu,
+.snn-speed-menu {
+    position: absolute;
+    background: white;
+    border: 1px solid #ccc;
+    padding: 8px;
+    z-index: 1000;
+    min-width: 150px;
+}
+
+.snn-cc-option,
+.snn-speed-option {
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.snn-cc-option:hover,
+.snn-speed-option:hover {
+    background: #f0f0f0;
+}
+
+.snn-settings-menu label {
+    display: block;
+    margin: 4px 0;
+}
+
+.snn-settings-menu input {
+    width: 100%;
+}
+
+.snn-progress-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    pointer-events: none;
+    transform: translateX(-50%);
+    bottom: 100%;
+    margin-bottom: 4px;
+}
+
+/* ===========================================================
+   MARK COMPLETE BUTTON
+   =========================================================== */
+
+.snn-mark-complete-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    cursor: pointer;
+}
+
+.snn-mark-complete-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.snn-completed-message {
+    font-weight: bold;
+}
+
+/* ===========================================================
+   CERTIFICATE BUTTON
+   =========================================================== */
+
+.snn-certificate-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    text-decoration: none;
+}
+
+/* ===========================================================
+   COURSE PROGRESS
+   =========================================================== */
+
+.snn-course-progress {
+    display: inline-block;
+    font-weight: bold;
+}
+
+.snn-progress-bar-wrapper {
+    width: 100%;
+    height: 20px;
+    background: #e0e0e0;
+    position: relative;
+}
+
+.snn-progress-bar-fill {
+    height: 100%;
+    background: #4caf50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+}
+
+/* ===========================================================
+   STRIKE SYSTEM
+   =========================================================== */
+
+.snn-strike-weekly {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.snn-strike-day {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    text-align: center;
+    line-height: 30px;
+}
+
+.snn-strike-count {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* ===========================================================
+   USER PROFILE SECTIONS
+   =========================================================== */
+
+.snn-enrolled-courses,
+.snn-completions,
+.snn-certificates {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.snn-enrolled-courses li,
+.snn-completions li,
+.snn-certificates li {
+    padding: 8px 0;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.snn-user-strikes {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* ===========================================================
+   COMMENT RATING FORM
+   =========================================================== */
+
+.comment-form-rating {
+    margin-bottom: 16px;
+}
+
+.comment-form-rating label {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.comment-form-rating select {
+    width: 100%;
+    max-width: 200px;
+    padding: 4px;
+}
+
+/* ===========================================================
+   RESPONSIVE
+   =========================================================== */
+
+@media (max-width: 768px) {
+    .snn-video-controls {
+        font-size: 14px;
+    }
+    
+    .snn-time-display {
+        font-size: 12px;
+        min-width: 80px;
+    }
+    
+    .snn-volume-slider {
+        width: 60px;
+    }
+}
