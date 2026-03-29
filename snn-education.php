@@ -1124,7 +1124,7 @@ function snn_edu_admin_menu() {
         'snn-education',
         'snn_edu_dashboard_page',
         'dashicons-welcome-learn-more',
-        10
+        3
     );
     
     add_submenu_page(
