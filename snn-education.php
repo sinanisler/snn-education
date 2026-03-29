@@ -13,7 +13,7 @@
 if (!defined('ABSPATH')) exit;
 
 // Constants
-define('SNN_EDU_VERSION', '1.0');
+define('SNN_EDU_VERSION', '1.2');
 define('SNN_EDU_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SNN_EDU_PLUGIN_URL', plugin_dir_url(__FILE__));
 
