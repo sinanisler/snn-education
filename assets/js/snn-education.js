@@ -106,6 +106,11 @@
         const speedMenu = container.querySelector('.snn-speed-menu');
         const fullscreenBtn = container.querySelector('.snn-fullscreen-btn');
         const progressTooltip = container.querySelector('.snn-progress-tooltip');
+
+        // Guard: bail if required elements are missing
+        if (!video || !playBtn || !progressBar || !timeDisplay || !volumeBtn || !volumeSlider || !fullscreenBtn) {
+            return;
+        }
         
         const lessonId = container.dataset.lessonId;
         const events = container.dataset.events;
@@ -308,6 +313,11 @@
             }
         });
         
+        // Suppress non-critical track/subtitle 404 errors from polluting the console
+        for (let i = 0; i < video.textTracks.length; i++) {
+            video.textTracks[i].mode = 'disabled';
+        }
+
         snn_education_videoPlayers.push({ container, video, lessonId });
     }
     

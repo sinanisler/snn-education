@@ -415,17 +415,26 @@ function snn_edu_video_player_shortcode($atts) {
     // Get poster
     $poster_url = '';
     if ($atts['poster']) {
-        $poster_url = filter_var($atts['poster'], FILTER_VALIDATE_URL) 
-            ? $atts['poster'] 
+        $poster_url = filter_var($atts['poster'], FILTER_VALIDATE_URL)
+            ? $atts['poster']
             : get_post_meta($post_id, $atts['poster'], true);
     }
-    
-    // Get subtitles
+    // Fallback to featured image if no poster specified or resolved
+    if (!$poster_url && has_post_thumbnail($post_id)) {
+        $poster_url = get_the_post_thumbnail_url($post_id, 'full');
+    }
+
+    // Get subtitles - expects custom field containing array: ['en' => 'https://...vtt', 'tr' => 'https://...vtt']
     $subtitles = [];
     if ($atts['subtitles']) {
         $subtitle_data = get_post_meta($post_id, $atts['subtitles'], true);
         if (is_array($subtitle_data)) {
-            $subtitles = $subtitle_data;
+            foreach ($subtitle_data as $lang => $url) {
+                // Only include valid, non-empty URLs to avoid 404 track errors
+                if (!empty($url) && filter_var($url, FILTER_VALIDATE_URL)) {
+                    $subtitles[sanitize_key($lang)] = $url;
+                }
+            }
         }
     }
     
@@ -1650,95 +1659,192 @@ function snn_edu_shortcodes_page() {
     if (!current_user_can('manage_options')) {
         wp_die(__('Access denied', 'snn'));
     }
-    
+
+    // Each shortcode: name, description, example (minimal), params array
+    // param keys: name, default, options, required, desc
     $shortcodes = [
         [
-            'code' => '[snn_video_player field="video_url" poster="poster_url" events="both"]',
-            'desc' => __('Custom video player with tracking', 'snn'),
-            'params' => 'field, poster, autoplay, muted, loop, events, subtitles, width, aspectratio'
+            'tag'     => 'snn_video_player',
+            'example' => '[snn_video_player]',
+            'desc'    => __('Embeds a custom HTML5 video player with lesson tracking, speed controls, subtitles, and fullscreen. '
+                          . 'Reads the video URL from a custom field on the current post. '
+                          . 'On load it auto-enrolls the logged-in user in the lesson. '
+                          . '<strong>Requires the user to be logged in</strong> — shows a login prompt otherwise.', 'snn'),
+            'params'  => [
+                ['name' => 'field',       'default' => 'video_url', 'options' => 'Any custom field name',                         'required' => false, 'desc' => 'Custom field key that holds the video file URL. Leave blank to use the default <code>video_url</code> field.'],
+                ['name' => 'poster',      'default' => '(featured image)', 'options' => 'Custom field name OR direct URL',        'required' => false, 'desc' => 'Thumbnail shown before the video plays. Can be a custom field key (e.g. <code>thumbnail_url</code>) or a full https:// URL. If omitted, the post\'s featured image is used automatically.'],
+                ['name' => 'subtitles',   'default' => '',          'options' => 'Custom field name',                             'required' => false, 'desc' => 'Custom field key containing subtitle data as a serialized array: <code>[\'en\' => \'https://…/en.vtt\', \'tr\' => \'https://…/tr.vtt\']</code>. Only valid https:// URLs are loaded; missing files are silently skipped.'],
+                ['name' => 'events',      'default' => 'both',      'options' => 'both | started | completed',                    'required' => false, 'desc' => '<code>both</code> fires started + completed tracking. <code>started</code> marks lesson complete after the threshold seconds watched. <code>completed</code> marks complete only when the video ends. Configure the threshold in Settings.'],
+                ['name' => 'autoplay',    'default' => 'false',     'options' => 'true | false',                                  'required' => false, 'desc' => 'Auto-start video on page load. Note: browsers block autoplay with sound — combine with <code>muted="true"</code>.'],
+                ['name' => 'muted',       'default' => 'false',     'options' => 'true | false',                                  'required' => false, 'desc' => 'Start the video muted.'],
+                ['name' => 'loop',        'default' => 'false',     'options' => 'true | false',                                  'required' => false, 'desc' => 'Loop the video continuously.'],
+                ['name' => 'width',       'default' => '100%',      'options' => 'Any CSS width value',                           'required' => false, 'desc' => 'Width of the player wrapper, e.g. <code>640px</code> or <code>80%</code>.'],
+                ['name' => 'aspectratio', 'default' => '16/9',      'options' => 'Any CSS aspect-ratio value',                    'required' => false, 'desc' => 'Aspect ratio of the player, e.g. <code>4/3</code> or <code>1/1</code>.'],
+            ],
         ],
         [
-            'code' => '[snn_mark_complete text="Complete Lesson"]',
-            'desc' => __('Manual completion button for non-video lessons', 'snn'),
-            'params' => 'text'
+            'tag'     => 'snn_mark_complete',
+            'example' => '[snn_mark_complete]',
+            'desc'    => __('Shows a "Complete Lesson" button for text/non-video lessons. '
+                          . 'Clicking it marks the current lesson as completed and records the progress. '
+                          . 'Automatically replaced by a "Lesson completed!" message if already done. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [
+                ['name' => 'text', 'default' => 'Complete Lesson', 'options' => 'Any string', 'required' => false, 'desc' => 'Button label text.'],
+            ],
         ],
         [
-            'code' => '[snn_certificate_button course_id="" page_url="" text="Get Certificate"]',
-            'desc' => __('Certificate download button (shown when course is 100% complete)', 'snn'),
-            'params' => 'course_id, page_url, text'
+            'tag'     => 'snn_certificate_button',
+            'example' => '[snn_certificate_button]',
+            'desc'    => __('Displays a "Get Certificate" link that appears <em>only</em> when the user has completed 100% of the course and a certificate record exists. '
+                          . 'By default, resolves the course from the current post\'s hierarchy — no attributes needed when placed on a lesson or course page. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [
+                ['name' => 'course_id', 'default' => '(auto)',          'options' => 'Post ID',         'required' => false, 'desc' => 'ID of the top-level course post. Auto-detected from the current page hierarchy — only set this if the shortcode is on a page outside the course tree.'],
+                ['name' => 'page_url',  'default' => '(instructor URL)', 'options' => 'Any page URL',   'required' => false, 'desc' => 'Custom URL for the certificate page. If blank, links to the instructor profile URL with certificate query parameters appended.'],
+                ['name' => 'text',      'default' => 'Get Certificate', 'options' => 'Any string',      'required' => false, 'desc' => 'Link label text.'],
+            ],
         ],
         [
-            'code' => '[snn_course_progress course_id="" format="number"]',
-            'desc' => __('Display course completion percentage', 'snn'),
-            'params' => 'course_id, format (number|bar)'
+            'tag'     => 'snn_course_progress',
+            'example' => '[snn_course_progress]',
+            'desc'    => __('Outputs the logged-in user\'s completion percentage for a course. '
+                          . 'Auto-detects the course from the current page. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [
+                ['name' => 'course_id', 'default' => '(auto)',   'options' => 'Post ID',          'required' => false, 'desc' => 'Top-level course post ID. Auto-detected when placed inside a course hierarchy.'],
+                ['name' => 'format',    'default' => 'number',   'options' => 'number | bar',     'required' => false, 'desc' => '<code>number</code> outputs <code>&lt;span&gt;75%&lt;/span&gt;</code>. <code>bar</code> outputs a CSS progress bar div.'],
+            ],
         ],
         [
-            'code' => '[snn_strike_weekly]',
-            'desc' => __('Weekly strike calendar (M-S with 🔥 for active days)', 'snn'),
-            'params' => 'none'
+            'tag'     => 'snn_strike_weekly',
+            'example' => '[snn_strike_weekly]',
+            'desc'    => __('Shows a 7-day row (Mon–Sun) for the current week. Days with at least one completed lesson show 🔥; inactive days show ●. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [],
         ],
         [
-            'code' => '[snn_strike_count]',
-            'desc' => __('Total consecutive day streak count', 'snn'),
-            'params' => 'none'
+            'tag'     => 'snn_strike_count',
+            'example' => '[snn_strike_count]',
+            'desc'    => __('Outputs the user\'s current consecutive-day learning streak as a plain number inside a <code>&lt;span&gt;</code>. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [],
         ],
         [
-            'code' => '[snn_user_enrolled_courses]',
-            'desc' => __('List of user\'s enrolled courses', 'snn'),
-            'params' => 'none'
+            'tag'     => 'snn_user_strikes',
+            'example' => '[snn_user_strikes]',
+            'desc'    => __('Convenience shortcode that combines <code>[snn_strike_weekly]</code> + <code>[snn_strike_count]</code> into one block: the weekly fire calendar followed by "Streak: N days". '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [],
         ],
         [
-            'code' => '[snn_user_completions]',
-            'desc' => __('List of user\'s completed courses with dates', 'snn'),
-            'params' => 'none'
+            'tag'     => 'snn_user_enrolled_courses',
+            'example' => '[snn_user_enrolled_courses]',
+            'desc'    => __('Lists all courses the logged-in user has started, with links and current progress %. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [],
         ],
         [
-            'code' => '[snn_user_strikes]',
-            'desc' => __('Combined weekly view + streak count', 'snn'),
-            'params' => 'none'
+            'tag'     => 'snn_user_completions',
+            'example' => '[snn_user_completions]',
+            'desc'    => __('Lists courses the user has fully completed (100%), with the completion date. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [],
         ],
         [
-            'code' => '[snn_user_certificates]',
-            'desc' => __('List of earned certificates with links', 'snn'),
-            'params' => 'none'
+            'tag'     => 'snn_user_certificates',
+            'example' => '[snn_user_certificates]',
+            'desc'    => __('Lists all certificates the user has earned, with course name and a link to view/verify the certificate. '
+                          . '<strong>Requires the user to be logged in.</strong>', 'snn'),
+            'params'  => [],
         ],
         [
-            'code' => '[snn_comment_form title_reply="Leave a Reply" label_submit="Post Comment"]',
-            'desc' => __('Frontend comment form with comments list and optional star ratings', 'snn'),
-            'params' => 'post_id, title_reply, label_submit'
+            'tag'     => 'snn_comment_form',
+            'example' => '[snn_comment_form]',
+            'desc'    => __('Renders a styled comment form + existing approved comments for the current post. '
+                          . 'Logged-in users do not see name/email fields. '
+                          . 'If the "Enable Comment Ratings" option is on in Settings, a star-rating selector appears too.', 'snn'),
+            'params'  => [
+                ['name' => 'post_id',      'default' => '(current post)', 'options' => 'Post ID',      'required' => false, 'desc' => 'Load comments for a different post. Leave blank to use the current post.'],
+                ['name' => 'title_reply',  'default' => 'Leave a Reply',  'options' => 'Any string',   'required' => false, 'desc' => 'Heading above the comment form.'],
+                ['name' => 'label_submit', 'default' => 'Post Comment',   'options' => 'Any string',   'required' => false, 'desc' => 'Submit button label.'],
+            ],
         ],
         [
-            'code' => '[snn_course_sidebar course_id=""]',
-            'desc' => __('Udemy-style course sidebar: chapters (no link) + lessons (with link), marks current and completed lessons', 'snn'),
-            'params' => 'course_id'
-        ]
+            'tag'     => 'snn_course_sidebar',
+            'example' => '[snn_course_sidebar]',
+            'desc'    => __('Renders a Udemy-style course outline sidebar: chapters are shown as non-clickable headings; lessons are links. '
+                          . 'The currently viewed lesson is highlighted; completed lessons show a ✓ checkmark. '
+                          . 'Works without any attributes when placed on a lesson or chapter page — the course is auto-detected from the page hierarchy.', 'snn'),
+            'params'  => [
+                ['name' => 'course_id', 'default' => '(auto)', 'options' => 'Post ID', 'required' => false, 'desc' => 'Top-level course post ID. Only needed when the shortcode is placed outside the course hierarchy (e.g. a custom sidebar widget page).'],
+            ],
+        ],
     ];
-    
+
     ?>
     <div class="wrap">
         <h1><?php _e('SNN Education Shortcodes', 'snn'); ?></h1>
-        
-        <table class="wp-list-table widefat fixed striped">
-            <thead>
-                <tr>
-                    <th style="width: 40%;"><?php _e('Shortcode', 'snn'); ?></th>
-                    <th style="width: 40%;"><?php _e('Description', 'snn'); ?></th>
-                    <th style="width: 20%;"><?php _e('Parameters', 'snn'); ?></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($shortcodes as $sc): ?>
-                <tr>
-                    <td>
-                        <code style="font-size: 12px;"><?php echo esc_html($sc['code']); ?></code>
-                        <button class="button button-small" onclick="navigator.clipboard.writeText('<?php echo esc_js($sc['code']); ?>')"><?php _e('Copy', 'snn'); ?></button>
-                    </td>
-                    <td><?php echo esc_html($sc['desc']); ?></td>
-                    <td><small><?php echo esc_html($sc['params']); ?></small></td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+        <p><?php _e('All parameters are optional unless noted. Parameters auto-detect values from the current post context when possible.', 'snn'); ?></p>
+
+        <style>
+            .snn-sc-card { background:#fff; border:1px solid #c3c4c7; border-radius:4px; margin-bottom:20px; padding:0; }
+            .snn-sc-header { padding:14px 18px; border-bottom:1px solid #c3c4c7; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+            .snn-sc-tag { font-family:monospace; font-size:14px; font-weight:600; color:#1d2327; }
+            .snn-sc-example { font-family:monospace; font-size:12px; background:#f0f0f1; padding:3px 8px; border-radius:3px; color:#50575e; }
+            .snn-sc-copy { margin-left:auto !important; }
+            .snn-sc-body { padding:14px 18px; }
+            .snn-sc-desc { margin:0 0 12px; color:#50575e; }
+            .snn-sc-no-params { color:#999; font-style:italic; font-size:13px; }
+            .snn-sc-params { width:100%; border-collapse:collapse; font-size:13px; }
+            .snn-sc-params th { text-align:left; padding:6px 10px; background:#f6f7f7; border:1px solid #e0e0e0; font-weight:600; }
+            .snn-sc-params td { padding:6px 10px; border:1px solid #e0e0e0; vertical-align:top; }
+            .snn-sc-params tr:nth-child(even) td { background:#fafafa; }
+            .snn-sc-params td:first-child { font-family:monospace; font-weight:600; color:#2271b1; white-space:nowrap; }
+            .snn-sc-params .default-val { color:#646970; }
+            .snn-sc-params .options-val { color:#1d7917; font-family:monospace; font-size:12px; }
+        </style>
+
+        <?php foreach ($shortcodes as $sc): ?>
+        <div class="snn-sc-card">
+            <div class="snn-sc-header">
+                <span class="snn-sc-tag">[<?php echo esc_html($sc['tag']); ?>]</span>
+                <code class="snn-sc-example"><?php echo esc_html($sc['example']); ?></code>
+                <button class="button button-small snn-sc-copy"
+                        onclick="navigator.clipboard.writeText('<?php echo esc_js($sc['example']); ?>').then(()=>{ this.textContent='<?php echo esc_js(__('Copied!', 'snn')); ?>'; setTimeout(()=>{ this.textContent='<?php echo esc_js(__('Copy', 'snn')); ?>'; },1500); })">
+                    <?php _e('Copy', 'snn'); ?>
+                </button>
+            </div>
+            <div class="snn-sc-body">
+                <p class="snn-sc-desc"><?php echo wp_kses_post($sc['desc']); ?></p>
+
+                <?php if (empty($sc['params'])): ?>
+                    <p class="snn-sc-no-params"><?php _e('No parameters — use as-is.', 'snn'); ?></p>
+                <?php else: ?>
+                    <table class="snn-sc-params">
+                        <thead>
+                            <tr>
+                                <th><?php _e('Parameter', 'snn'); ?></th>
+                                <th><?php _e('Default', 'snn'); ?></th>
+                                <th><?php _e('Accepted values', 'snn'); ?></th>
+                                <th><?php _e('Description', 'snn'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($sc['params'] as $p): ?>
+                            <tr>
+                                <td><?php echo esc_html($p['name']); ?></td>
+                                <td class="default-val"><?php echo esc_html($p['default']); ?></td>
+                                <td class="options-val"><?php echo esc_html($p['options']); ?></td>
+                                <td><?php echo wp_kses_post($p['desc']); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endforeach; ?>
     </div>
     <?php
 }
