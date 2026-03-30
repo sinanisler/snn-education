@@ -566,6 +566,8 @@ function snn_edu_video_player_shortcode($atts) {
             #<?php echo $pid; ?> .snn-speed-option.snn-active { background-color:var(--primary-accent-color); color:var(--tooltip-text-color); }
             #<?php echo $pid; ?> video::cue { font-size:20px; }
             #<?php echo $pid; ?> .snn-hidden { display:none !important; }
+            #<?php echo $pid; ?> .snn-osd { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.65); color:#fff; font-size:18px; font-weight:600; padding:10px 20px; border-radius:8px; pointer-events:none; opacity:0; transition:opacity 0.2s; z-index:50; white-space:nowrap; }
+            #<?php echo $pid; ?> .snn-osd.snn-osd-visible { opacity:1; }
         </style>
 
         <div class="snn-video-container">
@@ -1987,15 +1989,101 @@ function snn_edu_inline_js() {
                 if (fullscreenExitIcon) fullscreenExitIcon.classList.toggle('snn-hidden', !isFs);
             });
 
+            // ---- OSD (on-screen feedback) ----
+            const osd = document.createElement('div');
+            osd.className = 'snn-osd';
+            videoContainer.appendChild(osd);
+            let osdTimer = null;
+            const showOSD = (text) => {
+                osd.textContent = text;
+                osd.classList.add('snn-osd-visible');
+                clearTimeout(osdTimer);
+                osdTimer = setTimeout(() => osd.classList.remove('snn-osd-visible'), 800);
+            };
+
             // ---- Keyboard ----
             videoContainer.setAttribute('tabindex', '0');
             videoContainer.addEventListener('keydown', (e) => {
+                // Ignore if typing in an input inside the player
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+                const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 4];
                 switch (e.key) {
-                    case ' ': case 'k': e.preventDefault(); togglePlay(); break;
-                    case 'ArrowLeft':   e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 10); break;
-                    case 'ArrowRight':  e.preventDefault(); video.currentTime = Math.min(video.duration, video.currentTime + 10); break;
-                    case 'm': muteBtn.click(); break;
-                    case 'f': fullscreenBtn.click(); break;
+                    case ' ':
+                    case 'k':
+                        e.preventDefault();
+                        showOSD(video.paused ? '▶ Play' : '⏸ Pause');
+                        togglePlay();
+                        break;
+                    case 'ArrowLeft':
+                    case 'j':
+                        e.preventDefault();
+                        video.currentTime = Math.max(0, video.currentTime - 5);
+                        showOSD('⏪ -5s');
+                        break;
+                    case 'ArrowRight':
+                    case 'l':
+                        e.preventDefault();
+                        video.currentTime = Math.min(video.duration, video.currentTime + 5);
+                        showOSD('⏩ +5s');
+                        break;
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        video.volume = Math.min(1, Math.round((video.volume + 0.1) * 10) / 10);
+                        video.muted = false;
+                        lastVolume = video.volume;
+                        updateVolumeUI();
+                        showOSD('🔊 ' + Math.round(video.volume * 100) + '%');
+                        break;
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        video.volume = Math.max(0, Math.round((video.volume - 0.1) * 10) / 10);
+                        if (video.volume === 0) video.muted = true;
+                        updateVolumeUI();
+                        showOSD('🔉 ' + Math.round(video.volume * 100) + '%');
+                        break;
+                    case 'm':
+                        muteBtn.click();
+                        showOSD(video.muted ? '🔇 Muted' : '🔊 Unmuted');
+                        break;
+                    case 'f':
+                        fullscreenBtn.click();
+                        break;
+                    case 'c':
+                        if (ccBtn) { ccBtn.click(); }
+                        break;
+                    case '<':
+                    case ',': {
+                        e.preventDefault();
+                        const ci = speeds.indexOf(video.playbackRate);
+                        const ni = ci > 0 ? ci - 1 : 0;
+                        video.playbackRate = speeds[ni];
+                        if (settingsBtn) settingsBtn.textContent = speeds[ni] + 'x';
+                        speedOptions.forEach(o => o.classList.toggle('snn-active', parseFloat(o.dataset.speed) === speeds[ni]));
+                        showOSD('⏮ ' + speeds[ni] + 'x');
+                        break;
+                    }
+                    case '>':
+                    case '.': {
+                        e.preventDefault();
+                        const ci2 = speeds.indexOf(video.playbackRate);
+                        const ni2 = ci2 < speeds.length - 1 ? ci2 + 1 : speeds.length - 1;
+                        video.playbackRate = speeds[ni2];
+                        if (settingsBtn) settingsBtn.textContent = speeds[ni2] + 'x';
+                        speedOptions.forEach(o => o.classList.toggle('snn-active', parseFloat(o.dataset.speed) === speeds[ni2]));
+                        showOSD('⏭ ' + speeds[ni2] + 'x');
+                        break;
+                    }
+                    case '0': case '1': case '2': case '3': case '4':
+                    case '5': case '6': case '7': case '8': case '9':
+                        e.preventDefault();
+                        if (video.duration) {
+                            video.currentTime = (parseInt(e.key) / 10) * video.duration;
+                            showOSD('⏩ ' + (parseInt(e.key) * 10) + '%');
+                        }
+                        break;
+                    case 'Escape':
+                        if (document.fullscreenElement) document.exitFullscreen();
+                        break;
                 }
                 resetInactivity();
             });
