@@ -23,38 +23,26 @@ define('SNN_LEARN_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 function snn_learn_create_tables() {
     global $wpdb;
-    $charset_collate = $wpdb->get_charset_collate();
-    
-    $table1 = $wpdb->prefix . 'snn_learn_data';
-    $table2 = $wpdb->prefix . 'snn_learn_certificates';
-    
-    $sql1 = "CREATE TABLE $table1 (
-        id bigint(20) NOT NULL AUTO_INCREMENT,
-        user_id bigint(20) NOT NULL,
-        course_id bigint(20) NOT NULL,
-        lesson_id bigint(20) NOT NULL,
-        status varchar(20) NOT NULL,
-        updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY user_course_lesson (user_id, course_id, lesson_id),
-        KEY user_id (user_id),
-        KEY course_id (course_id)
-    ) $charset_collate;";
-    
-    $sql2 = "CREATE TABLE $table2 (
-        id bigint(20) NOT NULL AUTO_INCREMENT,
-        user_id bigint(20) NOT NULL,
-        course_id bigint(20) NOT NULL,
-        certificate_id varchar(255) NOT NULL,
-        completion_date datetime DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY user_course (user_id, course_id),
-        KEY user_id (user_id)
-    ) $charset_collate;";
-    
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-    dbDelta($sql1);
-    dbDelta($sql2);
+    $table = $wpdb->prefix . 'snn_enrollments';
+    $charset = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id BIGINT UNSIGNED NOT NULL,
+        post_id BIGINT UNSIGNED NOT NULL,
+        course_id BIGINT UNSIGNED NOT NULL,
+        enrolled_at INT UNSIGNED NOT NULL,
+        completed_at INT UNSIGNED DEFAULT NULL,
+        last_activity_at INT UNSIGNED DEFAULT NULL,
+        PRIMARY KEY  (id),
+        UNIQUE KEY uq_user_post  (user_id, post_id),
+        KEY idx_course_id        (course_id),
+        KEY idx_user_id          (user_id),
+        KEY idx_completed_at     (completed_at)
+    ) $charset;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql);
 }
 
 register_activation_hook(__FILE__, 'snn_learn_activate');
@@ -141,28 +129,33 @@ function snn_learn_is_lesson($post_id) {
     return (bool)$grandparent; // Has both parent and grandparent = lesson
 }
 
-function snn_learn_track_activity($user_id, $course_id, $lesson_id, $status) {
+function snn_learn_track_activity($user_id, $course_id, $post_id, $status) {
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_data';
+    $table = $wpdb->prefix . 'snn_enrollments';
+    $now = time();
     
     $wpdb->query($wpdb->prepare(
-        "INSERT INTO $table (user_id, course_id, lesson_id, status, updated_at) 
-         VALUES (%d, %d, %d, %s, NOW()) 
+        "INSERT INTO $table (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at) 
+         VALUES (%d, %d, %d, %d, %s, %d) 
          ON DUPLICATE KEY UPDATE 
-         status = IF(status = 'completed', 'completed', %s), 
-         updated_at = NOW()",
-        $user_id, $course_id, $lesson_id, $status, $status
+         completed_at = IF(completed_at IS NOT NULL, completed_at, %s),
+         last_activity_at = %d",
+        $user_id, $post_id, $course_id, $now, 
+        ($status === 'completed' ? $now : null),
+        $now,
+        ($status === 'completed' ? $now : null),
+        $now
     ));
 }
 
-function snn_learn_auto_enroll($user_id, $lesson_id) {
-    $ancestors = snn_learn_get_all_ancestors($lesson_id);
-    $course_id = snn_learn_get_top_level_course($lesson_id);
+function snn_learn_auto_enroll($user_id, $post_id) {
+    $ancestors = snn_learn_get_all_ancestors($post_id);
+    $course_id = snn_learn_get_top_level_course($post_id);
     
-    // Enroll in lesson
-    snn_learn_track_activity($user_id, $course_id, $lesson_id, 'started');
+    // Enroll in post (lesson or chapter)
+    snn_learn_track_activity($user_id, $course_id, $post_id, 'started');
     
-    // Enroll in all ancestors
+    // Enroll in all ancestors (chapters and course)
     foreach ($ancestors as $ancestor_id) {
         snn_learn_track_activity($user_id, $course_id, $ancestor_id, 'started');
     }
@@ -170,7 +163,7 @@ function snn_learn_auto_enroll($user_id, $lesson_id) {
 
 function snn_learn_get_course_progress($user_id, $course_id) {
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_data';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     // Get all lessons (grandchildren only)
     $all_lessons = get_posts([
@@ -197,39 +190,38 @@ function snn_learn_get_course_progress($user_id, $course_id) {
     $placeholders = implode(',', array_fill(0, count($lesson_ids), '%d'));
     $completed = $wpdb->get_var($wpdb->prepare(
         "SELECT COUNT(*) FROM $table 
-         WHERE user_id = %d AND course_id = %d AND lesson_id IN ($placeholders) AND status = 'completed'",
+         WHERE user_id = %d AND course_id = %d AND post_id IN ($placeholders) AND completed_at IS NOT NULL",
         array_merge([$user_id, $course_id], $lesson_ids)
     ));
     
     return round(($completed / count($lesson_ids)) * 100);
 }
 
-function snn_learn_generate_certificate_id($user_id, $course_id, $completion_date) {
-    $string = $user_id . '-' . $course_id . '-' . $completion_date . '-' . AUTH_KEY;
+function snn_learn_generate_certificate_id($user_id, $course_id, $completion_timestamp) {
+    $string = $user_id . '-' . $course_id . '-' . $completion_timestamp . '-' . AUTH_KEY;
     return base64_encode(hash('sha256', $string, true));
 }
 
 function snn_learn_issue_certificate($user_id, $course_id) {
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_certificates';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     // Check if already issued
     $existing = $wpdb->get_var($wpdb->prepare(
-        "SELECT id FROM $table WHERE user_id = %d AND course_id = %d",
-        $user_id, $course_id
+        "SELECT completed_at FROM $table WHERE user_id = %d AND post_id = %d AND course_id = %d",
+        $user_id, $course_id, $course_id
     ));
     
-    if ($existing) return;
+    if ($existing) return; // Already has certificate
     
-    $completion_date = current_time('mysql');
-    $certificate_id = snn_learn_generate_certificate_id($user_id, $course_id, $completion_date);
-    
-    $wpdb->insert($table, [
-        'user_id' => $user_id,
-        'course_id' => $course_id,
-        'certificate_id' => $certificate_id,
-        'completion_date' => $completion_date
-    ]);
+    // Mark course as completed
+    $now = time();
+    $wpdb->query($wpdb->prepare(
+        "INSERT INTO $table (user_id, post_id, course_id, enrolled_at, completed_at, last_activity_at) 
+         VALUES (%d, %d, %d, %d, %d, %d) 
+         ON DUPLICATE KEY UPDATE completed_at = %d, last_activity_at = %d",
+        $user_id, $course_id, $course_id, $now, $now, $now, $now, $now
+    ));
 }
 
 // ===========================================================
@@ -326,7 +318,7 @@ function snn_learn_rest_unenroll($request) {
 function snn_learn_rest_enrollments($request) {
     global $wpdb;
     $user_id = get_current_user_id();
-    $table = $wpdb->prefix . 'snn_learn_data';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     $results = $wpdb->get_results($wpdb->prepare(
         "SELECT DISTINCT course_id FROM $table WHERE user_id = %d",
@@ -356,10 +348,12 @@ function snn_learn_rest_complete($request) {
 function snn_learn_rest_completions($request) {
     global $wpdb;
     $user_id = get_current_user_id();
-    $table = $wpdb->prefix . 'snn_learn_certificates';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     $results = $wpdb->get_results($wpdb->prepare(
-        "SELECT course_id, completion_date FROM $table WHERE user_id = %d ORDER BY completion_date DESC",
+        "SELECT course_id, completed_at FROM $table 
+         WHERE user_id = %d AND post_id = course_id AND completed_at IS NOT NULL 
+         ORDER BY completed_at DESC",
         $user_id
     ), ARRAY_A);
     
@@ -744,33 +738,34 @@ function snn_learn_certificate_button_shortcode($atts) {
     }
     
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_certificates';
+    $table = $wpdb->prefix . 'snn_enrollments';
     $cert = $wpdb->get_row($wpdb->prepare(
-        "SELECT certificate_id, completion_date FROM $table WHERE user_id = %d AND course_id = %d",
-        $user_id, $course_id
+        "SELECT completed_at FROM $table WHERE user_id = %d AND post_id = %d AND course_id = %d AND completed_at IS NOT NULL",
+        $user_id, $course_id, $course_id
     ));
     
     if (!$cert) {
         return '';
     }
     
+    $certificate_id = snn_learn_generate_certificate_id($user_id, $course_id, $cert->completed_at);
     $instructor_id = get_post_field('post_author', $course_id);
     $cert_url = sprintf(
-        '%s/instructor/%d/?cid=%d&uid=%d&completion_date=%s&certificate_id=%s',
+        '%s/instructor/%d/?cid=%d&uid=%d&completed_at=%d&certificate_id=%s',
         home_url(),
         $instructor_id,
         $course_id,
         $user_id,
-        urlencode($cert->completion_date),
-        urlencode($cert->certificate_id)
+        $cert->completed_at,
+        urlencode($certificate_id)
     );
     
     if ($atts['page_url']) {
         $cert_url = add_query_arg([
             'cid' => $course_id,
             'uid' => $user_id,
-            'completion_date' => urlencode($cert->completion_date),
-            'certificate_id' => urlencode($cert->certificate_id)
+            'completed_at' => $cert->completed_at,
+            'certificate_id' => urlencode($certificate_id)
         ], $atts['page_url']);
     }
     
@@ -818,7 +813,7 @@ function snn_learn_strike_weekly_shortcode($atts) {
     
     $user_id = get_current_user_id();
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_data';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     $start_of_week = strtotime('monday this week');
     $days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -826,13 +821,13 @@ function snn_learn_strike_weekly_shortcode($atts) {
     $output = '<div class="snn-strike-weekly">';
     
     for ($i = 0; $i < 7; $i++) {
-        $day_start = date('Y-m-d 00:00:00', $start_of_week + ($i * 86400));
-        $day_end = date('Y-m-d 23:59:59', $start_of_week + ($i * 86400));
+        $day_start = $start_of_week + ($i * 86400);
+        $day_end = $day_start + 86399; // End of day
         
         $activity = $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table 
-             WHERE user_id = %d AND status = 'completed' 
-             AND updated_at BETWEEN %s AND %s",
+             WHERE user_id = %d AND completed_at IS NOT NULL 
+             AND completed_at BETWEEN %d AND %d",
             $user_id, $day_start, $day_end
         ));
         
@@ -854,12 +849,12 @@ function snn_learn_strike_count_shortcode($atts) {
     
     $user_id = get_current_user_id();
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_data';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
-    // Get all completion dates
+    // Get all completion dates (by day)
     $dates = $wpdb->get_col($wpdb->prepare(
-        "SELECT DISTINCT DATE(updated_at) as date FROM $table 
-         WHERE user_id = %d AND status = 'completed' 
+        "SELECT DISTINCT DATE(FROM_UNIXTIME(completed_at)) as date FROM $table 
+         WHERE user_id = %d AND completed_at IS NOT NULL 
          ORDER BY date DESC",
         $user_id
     ));
@@ -891,7 +886,7 @@ function snn_learn_user_enrolled_courses_shortcode($atts) {
     
     $user_id = get_current_user_id();
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_data';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     $course_ids = $wpdb->get_col($wpdb->prepare(
         "SELECT DISTINCT course_id FROM $table WHERE user_id = %d",
@@ -930,10 +925,12 @@ function snn_learn_user_completions_shortcode($atts) {
     
     $user_id = get_current_user_id();
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_certificates';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     $completions = $wpdb->get_results($wpdb->prepare(
-        "SELECT course_id, completion_date FROM $table WHERE user_id = %d ORDER BY completion_date DESC",
+        "SELECT course_id, completed_at FROM $table 
+         WHERE user_id = %d AND post_id = course_id AND completed_at IS NOT NULL 
+         ORDER BY completed_at DESC",
         $user_id
     ));
     
@@ -945,7 +942,7 @@ function snn_learn_user_completions_shortcode($atts) {
     foreach ($completions as $completion) {
         $title = get_the_title($completion->course_id);
         $url = get_permalink($completion->course_id);
-        $date = date_i18n(get_option('date_format'), strtotime($completion->completion_date));
+        $date = date_i18n(get_option('date_format'), $completion->completed_at);
         
         $output .= sprintf(
             '<li><a href="%s">%s</a> - %s</li>',
@@ -987,10 +984,12 @@ function snn_learn_user_certificates_shortcode($atts) {
     
     $user_id = get_current_user_id();
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_certificates';
+    $table = $wpdb->prefix . 'snn_enrollments';
     
     $certificates = $wpdb->get_results($wpdb->prepare(
-        "SELECT * FROM $table WHERE user_id = %d ORDER BY completion_date DESC",
+        "SELECT course_id, completed_at FROM $table 
+         WHERE user_id = %d AND post_id = course_id AND completed_at IS NOT NULL 
+         ORDER BY completed_at DESC",
         $user_id
     ));
     
@@ -1002,21 +1001,22 @@ function snn_learn_user_certificates_shortcode($atts) {
     foreach ($certificates as $cert) {
         $title = get_the_title($cert->course_id);
         $instructor_id = get_post_field('post_author', $cert->course_id);
+        $certificate_id = snn_learn_generate_certificate_id($user_id, $cert->course_id, $cert->completed_at);
         $cert_url = sprintf(
-            '%s/instructor/%d/?cid=%d&uid=%d&completion_date=%s&certificate_id=%s',
+            '%s/instructor/%d/?cid=%d&uid=%d&completed_at=%d&certificate_id=%s',
             home_url(),
             $instructor_id,
             $cert->course_id,
             $user_id,
-            urlencode($cert->completion_date),
-            urlencode($cert->certificate_id)
+            $cert->completed_at,
+            urlencode($certificate_id)
         );
         
         $output .= sprintf(
             '<li><a href="%s">%s</a> - %s</li>',
             esc_url($cert_url),
             esc_html($title),
-            esc_html(date_i18n(get_option('date_format'), strtotime($cert->completion_date)))
+            esc_html(date_i18n(get_option('date_format'), $cert->completed_at))
         );
     }
     $output .= '</ul>';
@@ -1094,14 +1094,14 @@ function snn_learn_comment_form_shortcode($atts) {
 }
 
 // Course Sidebar Shortcode
-add_shortcode('snn_course_sidebar', 'snn_edu_course_sidebar_shortcode');
+add_shortcode('snn_course_sidebar', 'snn_learn_course_sidebar_shortcode');
 
-function snn_edu_course_sidebar_shortcode($atts) {
+function snn_learn_course_sidebar_shortcode($atts) {
     $atts = shortcode_atts([
         'course_id' => 0,
     ], $atts);
 
-    $course_id = $atts['course_id'] ? intval($atts['course_id']) : snn_edu_get_top_level_course(get_the_ID());
+    $course_id = $atts['course_id'] ? intval($atts['course_id']) : snn_learn_get_top_level_course(get_the_ID());
 
     if (!$course_id) {
         return '';
@@ -1109,15 +1109,15 @@ function snn_edu_course_sidebar_shortcode($atts) {
 
     $user_id       = get_current_user_id();
     $current_id    = get_the_ID();
-    $post_types    = snn_edu_get_allowed_post_types();
+    $post_types    = snn_learn_get_allowed_post_types();
 
     // Get completed lesson IDs for this user/course
     $completed_ids = [];
     if ($user_id) {
         global $wpdb;
-        $table = $wpdb->prefix . 'snn_edu_data';
+        $table = $wpdb->prefix . 'snn_enrollments';
         $completed_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT lesson_id FROM $table WHERE user_id = %d AND course_id = %d AND status = 'completed'",
+            "SELECT post_id FROM $table WHERE user_id = %d AND course_id = %d AND completed_at IS NOT NULL",
             $user_id, $course_id
         ));
         $completed_ids = array_map('intval', $completed_ids);
@@ -2210,12 +2210,11 @@ function snn_learn_dashboard_page() {
     }
     
     global $wpdb;
-    $data_table = $wpdb->prefix . 'snn_learn_data';
-    $cert_table = $wpdb->prefix . 'snn_learn_certificates';
+    $data_table = $wpdb->prefix . 'snn_enrollments';
     
     // Get stats
     $total_students = $wpdb->get_var("SELECT COUNT(DISTINCT user_id) FROM $data_table");
-    $total_completions = $wpdb->get_var("SELECT COUNT(*) FROM $cert_table");
+    $total_completions = $wpdb->get_var("SELECT COUNT(*) FROM $data_table WHERE post_id = course_id AND completed_at IS NOT NULL");
     
     // Most active courses
     $active_courses = $wpdb->get_results("
@@ -2242,10 +2241,11 @@ function snn_learn_dashboard_page() {
     $where = ['1=1'];
     if ($filter_course) $where[] = $wpdb->prepare('course_id = %d', $filter_course);
     if ($filter_user) $where[] = $wpdb->prepare('user_id = %d', $filter_user);
-    if ($filter_status) $where[] = $wpdb->prepare('status = %s', $filter_status);
+    if ($filter_status === 'completed') $where[] = 'completed_at IS NOT NULL';
+    if ($filter_status === 'started') $where[] = 'completed_at IS NULL';
     
     $where_sql = implode(' AND ', $where);
-    $all_data = $wpdb->get_results("SELECT * FROM $data_table WHERE $where_sql ORDER BY updated_at DESC LIMIT 100");
+    $all_data = $wpdb->get_results("SELECT * FROM $data_table WHERE $where_sql ORDER BY last_activity_at DESC LIMIT 100");
     
     ?>
     <div class="wrap">
@@ -2312,9 +2312,11 @@ function snn_learn_dashboard_page() {
                 <tr>
                     <th><?php _e('User', 'snn'); ?></th>
                     <th><?php _e('Course', 'snn'); ?></th>
-                    <th><?php _e('Lesson', 'snn'); ?></th>
+                    <th><?php _e('Post', 'snn'); ?></th>
                     <th><?php _e('Status', 'snn'); ?></th>
-                    <th><?php _e('Date', 'snn'); ?></th>
+                    <th><?php _e('Enrolled', 'snn'); ?></th>
+                    <th><?php _e('Completed', 'snn'); ?></th>
+                    <th><?php _e('Last Activity', 'snn'); ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -2322,9 +2324,11 @@ function snn_learn_dashboard_page() {
                 <tr>
                     <td><?php echo esc_html(get_userdata($row->user_id)->display_name ?? 'Unknown'); ?></td>
                     <td><?php echo esc_html(get_the_title($row->course_id)); ?></td>
-                    <td><?php echo esc_html(get_the_title($row->lesson_id)); ?></td>
-                    <td><?php echo esc_html($row->status); ?></td>
-                    <td><?php echo esc_html($row->updated_at); ?></td>
+                    <td><?php echo esc_html(get_the_title($row->post_id)); ?></td>
+                    <td><?php echo $row->completed_at ? '<span style="color: green;">✓ Completed</span>' : '<span style="color: #999;">In Progress</span>'; ?></td>
+                    <td><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $row->enrolled_at)); ?></td>
+                    <td><?php echo $row->completed_at ? esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $row->completed_at)) : '-'; ?></td>
+                    <td><?php echo $row->last_activity_at ? esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $row->last_activity_at)) : '-'; ?></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -2346,8 +2350,21 @@ function snn_learn_export_csv() {
     }
     
     global $wpdb;
-    $table = $wpdb->prefix . 'snn_learn_data';
-    $data = $wpdb->get_results("SELECT * FROM $table ORDER BY updated_at DESC", ARRAY_A);
+    $table = $wpdb->prefix . 'snn_enrollments';
+    $data = $wpdb->get_results("SELECT * FROM $table ORDER BY last_activity_at DESC", ARRAY_A);
+    
+    // Convert timestamps to readable dates
+    foreach ($data as &$row) {
+        if (isset($row['enrolled_at'])) {
+            $row['enrolled_at'] = date('Y-m-d H:i:s', $row['enrolled_at']);
+        }
+        if (isset($row['completed_at']) && $row['completed_at']) {
+            $row['completed_at'] = date('Y-m-d H:i:s', $row['completed_at']);
+        }
+        if (isset($row['last_activity_at']) && $row['last_activity_at']) {
+            $row['last_activity_at'] = date('Y-m-d H:i:s', $row['last_activity_at']);
+        }
+    }
     
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="snn-learn-data-' . date('Y-m-d') . '.csv"');
