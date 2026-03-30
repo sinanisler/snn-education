@@ -490,7 +490,7 @@ function snn_edu_video_player_shortcode($atts) {
 
         <style>
             #<?php echo $pid; ?> {
-                --primary-accent-color: rgba(255,214,79,1);
+                --primary-accent-color: #0556c7;
                 --thumb-color: rgba(255,255,255,1);
                 --text-color: rgba(255,255,255,1);
                 --slider-track-color: rgba(255,255,255,0.3);
@@ -1678,13 +1678,13 @@ function snn_edu_inline_js() {
                 }
             });
             videoContainer.addEventListener('dblclick', (e) => {
-                if (e.target === video || e.target === videoContainer) {
-                    clearTimeout(snnClickTimer);
-                    if (!document.fullscreenElement) {
-                        videoContainer.requestFullscreen().catch(err => console.warn('Fullscreen:', err));
-                    } else {
-                        document.exitFullscreen();
-                    }
+                // Ignore double-clicks on actual control buttons/inputs
+                if (e.target.closest('button, input, .snn-settings-menu, .snn-cc-menu')) return;
+                clearTimeout(snnClickTimer);
+                if (!document.fullscreenElement) {
+                    videoContainer.requestFullscreen().catch(err => console.warn('Fullscreen:', err));
+                } else {
+                    document.exitFullscreen();
                 }
             });
 
