@@ -1667,8 +1667,23 @@ function snn_edu_inline_js() {
             };
 
             playPauseBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
+
+            let snnClickTimer = null;
             videoContainer.addEventListener('click', (e) => {
-                if (e.target === video || e.target === videoContainer) togglePlay();
+                if (e.target === video || e.target === videoContainer) {
+                    clearTimeout(snnClickTimer);
+                    snnClickTimer = setTimeout(() => togglePlay(), 220);
+                }
+            });
+            videoContainer.addEventListener('dblclick', (e) => {
+                if (e.target === video || e.target === videoContainer) {
+                    clearTimeout(snnClickTimer);
+                    if (!document.fullscreenElement) {
+                        videoContainer.requestFullscreen().catch(err => console.warn('Fullscreen:', err));
+                    } else {
+                        document.exitFullscreen();
+                    }
+                }
             });
 
             video.addEventListener('play', () => { playPauseBtn.innerHTML = ICONS.pause; resetInactivity(); });
@@ -1977,8 +1992,8 @@ function snn_edu_inline_js() {
             videoContainer.addEventListener('keydown', (e) => {
                 switch (e.key) {
                     case ' ': case 'k': e.preventDefault(); togglePlay(); break;
-                    case 'ArrowLeft':   e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 5); break;
-                    case 'ArrowRight':  e.preventDefault(); video.currentTime = Math.min(video.duration, video.currentTime + 5); break;
+                    case 'ArrowLeft':   e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 10); break;
+                    case 'ArrowRight':  e.preventDefault(); video.currentTime = Math.min(video.duration, video.currentTime + 10); break;
                     case 'm': muteBtn.click(); break;
                     case 'f': fullscreenBtn.click(); break;
                 }
