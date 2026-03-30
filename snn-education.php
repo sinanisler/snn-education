@@ -2,7 +2,7 @@
 /**  
  * Plugin Name: SNN Education
  * Description: Complete education platform with video tracking, certificates, strikes, and course management
- * Version: 1.2
+ * Version: 1.3
  * Author: sinanisler
  * Author URI: https://sinanisler.com
  * Text Domain: snn
