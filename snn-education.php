@@ -1672,13 +1672,13 @@ function snn_edu_inline_js() {
 
             let snnClickTimer = null;
             videoContainer.addEventListener('click', (e) => {
-                if (e.target.closest('button, input, .snn-settings-menu, .snn-cc-menu')) return;
+                if (e.target.closest('button, input, .snn-settings-menu, .snn-cc-menu, .snn-progress-container, .snn-controls-bar')) return;
                 clearTimeout(snnClickTimer);
                 snnClickTimer = setTimeout(() => togglePlay(), 220);
             });
             videoContainer.addEventListener('dblclick', (e) => {
                 // Ignore double-clicks on actual control buttons/inputs
-                if (e.target.closest('button, input, .snn-settings-menu, .snn-cc-menu')) return;
+                if (e.target.closest('button, input, .snn-settings-menu, .snn-cc-menu, .snn-progress-container, .snn-controls-bar')) return;
                 clearTimeout(snnClickTimer);
                 if (!document.fullscreenElement) {
                     videoContainer.requestFullscreen().catch(err => console.warn('Fullscreen:', err));
