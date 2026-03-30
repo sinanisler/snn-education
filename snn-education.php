@@ -1672,10 +1672,9 @@ function snn_edu_inline_js() {
 
             let snnClickTimer = null;
             videoContainer.addEventListener('click', (e) => {
-                if (e.target === video || e.target === videoContainer) {
-                    clearTimeout(snnClickTimer);
-                    snnClickTimer = setTimeout(() => togglePlay(), 220);
-                }
+                if (e.target.closest('button, input, .snn-settings-menu, .snn-cc-menu')) return;
+                clearTimeout(snnClickTimer);
+                snnClickTimer = setTimeout(() => togglePlay(), 220);
             });
             videoContainer.addEventListener('dblclick', (e) => {
                 // Ignore double-clicks on actual control buttons/inputs
