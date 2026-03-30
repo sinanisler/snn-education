@@ -1,10 +1,10 @@
-# SNN Education
+# SNN Learn
 
-Complete education platform for WordPress with video tracking, certificates, strikes, and course management.
+Complete learning platform for WordPress with video tracking, certificates, strikes, and course management.
 
 **Author:** sinanisler  
 **Website:** [sinanisler.com](https://sinanisler.com)  
-**GitHub:** [github.com/sinanisler/snn-education](https://github.com/sinanisler/snn-education)  
+**GitHub:** [github.com/sinanisler/snn-learn](https://github.com/sinanisler/snn-learn)  
 **Text Domain:** snn  
 **Requires PHP:** 8.0+
 
@@ -35,28 +35,28 @@ Complete education platform for WordPress with video tracking, certificates, str
 - Completion tracking based on watch time or full video
 
 ### REST API
-- `POST /snn-edu/v1/track` - Track lesson started/completed
-- `POST /snn-edu/v1/enroll` - Enroll in a post (and ancestors)
-- `POST /snn-edu/v1/unenroll` - Disabled (returns error)
-- `GET /snn-edu/v1/enrollments` - Get all enrollments for current user
-- `POST /snn-edu/v1/complete` - Mark top-level course complete
-- `GET /snn-edu/v1/completions` - Get all completions with dates
-- `GET /snn-edu/v1/user-name/{uid}` - Get user full name (public)
+- `POST /snn-learn/v1/track` - Track lesson started/completed
+- `POST /snn-learn/v1/enroll` - Enroll in a post (and ancestors)
+- `POST /snn-learn/v1/unenroll` - Disabled (returns error)
+- `GET /snn-learn/v1/enrollments` - Get all enrollments for current user
+- `POST /snn-learn/v1/complete` - Mark top-level course complete
+- `GET /snn-learn/v1/completions` - Get all completions with dates
+- `GET /snn-learn/v1/user-name/{uid}` - Get user full name (public)
 
 ### Frontend JavaScript Functions
 All functions are globally available on all pages:
-- `snnEduEnrollUser(postId)`
-- `snnEduUnenrollUser(postId)` - Returns error, disabled
-- `snnEduGetEnrollments()`
-- `snnEduIsEnrolled(postId)`
-- `snnEduCompletePost(postId)`
-- `snnEduGetCompletions()`
-- `snnEduIsCompleted(postId)`
+- `snnLearnEnrollUser(postId)`
+- `snnLearnUnenrollUser(postId)` - Returns error, disabled
+- `snnLearnGetEnrollments()`
+- `snnLearnIsEnrolled(postId)`
+- `snnLearnCompletePost(postId)`
+- `snnLearnGetCompletions()`
+- `snnLearnIsCompleted(postId)`
 
 ### Custom Events
 **Dispatched:**
-- `snn_edu_enrolled` - When user enrolls
-- `snn_edu_completed` - When user completes a course
+- `snn_learn_enrolled` - When user enrolls
+- `snn_learn_completed` - When user completes a course
 - `snn_video_started` - When video tracking starts
 - `snn_video_completed` - When video ends
 
@@ -328,15 +328,14 @@ When enabled:
 ## File Structure
 
 ```
-snn-education/
-├── snn-education.php          # Main plugin file (ALL backend logic)
+snn-learn/
+├── snn-learn.php              # Main plugin file (ALL backend logic)
 ├── README.md                   # This file
 └── assets/
     ├── css/
-    │   ├── snn-education.css   # Frontend styles
+    │   ├── snn-learn.css      # Frontend styles
     │   └── enlighterjs.min_.css # EnlighterJS styles
     └── js/
-        ├── snn-education.js    # Frontend JavaScript
         └── enlighterjs.min_.js # EnlighterJS library
 ```
 
@@ -344,9 +343,9 @@ snn-education/
 
 ## Installation
 
-1. Upload the `snn-education` folder to `/wp-content/plugins/`
+1. Upload the `snn-learn` folder to `/wp-content/plugins/`
 2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Go to **SNN Education → Settings** to configure
+3. Go to **SNN Learn → Settings** to configure
 4. Add shortcodes to your pages/posts
 
 ---
@@ -398,7 +397,7 @@ snn-education/
 ## Support
 
 For issues, questions, or contributions:
-- **GitHub:** [github.com/sinanisler/snn-education](https://github.com/sinanisler/snn-education)
+- **GitHub:** [github.com/sinanisler/snn-learn](https://github.com/sinanisler/snn-learn)
 - **Website:** [sinanisler.com](https://sinanisler.com)
 
 ---
