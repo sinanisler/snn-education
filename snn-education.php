@@ -1094,14 +1094,14 @@ function snn_learn_comment_form_shortcode($atts) {
 }
 
 // Course Sidebar Shortcode
-add_shortcode('snn_course_sidebar', 'snn_edu_course_sidebar_shortcode');
+add_shortcode('snn_course_sidebar', 'snn_learn_course_sidebar_shortcode');
 
-function snn_edu_course_sidebar_shortcode($atts) {
+function snn_learn_course_sidebar_shortcode($atts) {
     $atts = shortcode_atts([
         'course_id' => 0,
     ], $atts);
 
-    $course_id = $atts['course_id'] ? intval($atts['course_id']) : snn_edu_get_top_level_course(get_the_ID());
+    $course_id = $atts['course_id'] ? intval($atts['course_id']) : snn_learn_get_top_level_course(get_the_ID());
 
     if (!$course_id) {
         return '';
@@ -1109,13 +1109,13 @@ function snn_edu_course_sidebar_shortcode($atts) {
 
     $user_id       = get_current_user_id();
     $current_id    = get_the_ID();
-    $post_types    = snn_edu_get_allowed_post_types();
+    $post_types    = snn_learn_get_allowed_post_types();
 
     // Get completed lesson IDs for this user/course
     $completed_ids = [];
     if ($user_id) {
         global $wpdb;
-        $table = $wpdb->prefix . 'snn_edu_data';
+        $table = $wpdb->prefix . 'snn_learn_data';
         $completed_ids = $wpdb->get_col($wpdb->prepare(
             "SELECT lesson_id FROM $table WHERE user_id = %d AND course_id = %d AND status = 'completed'",
             $user_id, $course_id
